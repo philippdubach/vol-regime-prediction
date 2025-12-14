@@ -1,0 +1,52 @@
+# Configuration for Volatility Regime Prediction Project
+
+# Data collection settings
+data:
+  start_date: "2006-01-01"  # Start of sample (includes pre-2008 crisis)
+  end_date: null            # null = today's date
+  
+  # Cache settings
+  cache:
+    enabled: true
+    directory: "data/raw"
+    expiry_days: 1          # Re-download after this many days
+  
+  # Data sources priority (first available is used)
+  sources:
+    vix:
+      - cboe               # Primary: CBOE direct download
+      - fred               # Fallback: FRED API
+    
+    vix_futures:
+      - cboe               # Only source for futures
+    
+    spx:
+      - yfinance           # Yahoo Finance
+    
+    # Future premium sources (uncomment when available)
+    # options:
+    #   - optionmetrics    # WRDS
+    #   - alpha_vantage    # Alpha Vantage premium
+
+# Feature engineering settings  
+features:
+  realized_volatility:
+    windows: [5, 10, 21, 63, 126, 252]  # Trading days
+    annualization_factor: 252
+  
+  variance_risk_premium:
+    forward_window: 21     # 1 month forward-looking RV
+  
+  term_structure:
+    contracts: [1, 2, 3, 4, 5, 6, 7, 8, 9]  # VIX futures months
+
+# Logging settings
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/data_collection.log"
+
+# Output settings
+output:
+  processed_file: "data/processed/volatility_dataset.parquet"
+  figures_dir: "reports/figures"

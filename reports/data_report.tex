@@ -1,0 +1,593 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{subcaption}
+\usepackage{enumitem}
+
+% Custom commands
+\newcommand{\vix}{\text{VIX}}
+\newcommand{\spx}{\text{S\&P 500}}
+
+% Title
+\title{\textbf{Volatility Regime Prediction Dataset}\\
+\large Data Collection and Quality Assessment Report}
+\author{Philipp D. Dubach}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report documents the data collection methodology and quality assessment for a volatility regime prediction research project. We collect and integrate data from multiple sources including CBOE (VIX indices, SKEW index, put/call ratios, and futures term structure), Yahoo Finance (S\&P 500 prices), and FRED (macroeconomic and volatility indicators). The final dataset spans from January 2006 to December 2025, covering 5,046 trading days with 139 features. We provide descriptive statistics, correlation analysis, and an assessment of data quality suitable for machine learning applications in volatility forecasting.
+\end{abstract}
+
+\newpage
+\tableofcontents
+\newpage
+
+%------------------------------------------------------------------------------
+\section{Introduction}
+%------------------------------------------------------------------------------
+
+Volatility regime prediction is a fundamental challenge in quantitative finance with applications in portfolio management, risk management, and derivatives pricing. The VIX index, often called the ``fear gauge,'' captures market expectations of near-term volatility derived from S\&P 500 index options. Understanding and predicting transitions between volatility regimes can provide valuable insights for systematic trading strategies.
+
+This report documents our data collection infrastructure, which is designed with the following objectives:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Comprehensiveness}: Integrate multiple data sources covering spot volatility, forward-looking volatility (VIX term structure), realized volatility, and macroeconomic conditions.
+    \item \textbf{Extensibility}: Implement a modular architecture that allows easy replacement of data sources (e.g., transitioning from free to premium data providers).
+    \item \textbf{Reproducibility}: Create a fully automated pipeline that can be re-run to update the dataset.
+\end{enumerate}
+
+%------------------------------------------------------------------------------
+\section{Data Sources and Methodology}
+%------------------------------------------------------------------------------
+
+\subsection{CBOE Volatility Indices}
+
+The Chicago Board Options Exchange (CBOE) provides historical data for various volatility indices. We collect:
+
+\begin{table}[H]
+\centering
+\caption{CBOE Volatility Index Series}
+\label{tab:cboe_indices}
+\begin{tabular}{llc}
+\toprule
+\textbf{Series} & \textbf{Description} & \textbf{Start Date} \\
+\midrule
+VIX & 30-day implied volatility & 2006-01-03 \\
+VVIX & Volatility of VIX & 2006-03-06 \\
+VIX9D & 9-day implied volatility & 2011-01-04 \\
+VIX3M & 3-month implied volatility & 2009-09-18 \\
+VIX6M & 6-month implied volatility & 2008-01-02 \\
+SKEW & Tail risk index & 2006-01-03 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each index provides OHLC (Open, High, Low, Close) values, enabling analysis of intraday volatility dynamics.
+
+\subsection{CBOE SKEW Index}
+
+The CBOE SKEW Index measures perceived tail risk in the S\&P 500 distribution. It is derived from out-of-the-money option prices and reflects the market's expectation of extreme negative returns:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{SKEW = 100}: Normal distribution (no perceived tail risk)
+    \item \textbf{SKEW $>$ 100}: Elevated left-tail risk (crash protection demand)
+    \item \textbf{Historical range}: Typically 100--150, with spikes during stress periods
+\end{itemize}
+
+Unlike VIX, which measures the overall level of implied volatility, SKEW captures the \textit{asymmetry} in option pricing---specifically, the premium investors pay for downside protection.
+
+\subsection{Put/Call Ratios}
+
+We collect historical put/call ratio data from CBOE's options volume database (available through October 2019):
+
+\begin{table}[H]
+\centering
+\caption{CBOE Put/Call Ratio Series}
+\label{tab:putcall}
+\begin{tabular}{llc}
+\toprule
+\textbf{Series} & \textbf{Description} & \textbf{Coverage} \\
+\midrule
+TOTAL\_PC & All CBOE options put/call ratio & 2006-11 to 2019-10 \\
+INDEX\_PC & Index options put/call ratio & 2006-11 to 2019-10 \\
+EQUITY\_PC & Equity options put/call ratio & 2006-11 to 2019-10 \\
+VIX\_PC & VIX options put/call ratio & 2006-02 to 2019-10 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each series includes:
+\begin{itemize}[noitemsep]
+    \item Call volume, put volume, and total volume
+    \item Put/call ratio: $\text{PC} = \text{Put Volume} / \text{Call Volume}$
+\end{itemize}
+
+\textbf{Interpretation:}
+\begin{itemize}[noitemsep]
+    \item \textbf{PC $>$ 1}: More puts traded than calls (bearish sentiment or hedging demand)
+    \item \textbf{PC $<$ 1}: More calls traded than puts (bullish sentiment)
+    \item \textbf{Extreme readings}: Often used as contrarian indicators
+\end{itemize}
+
+\subsection{VIX Futures Term Structure}
+
+We construct the VIX futures term structure by downloading individual contract files from CBOE. For each trading day, we identify the front-month through ninth-month contracts and calculate:
+
+\begin{itemize}[noitemsep]
+    \item VX1 to VX9: Settlement prices for each contract month
+    \item Term structure slope: $\text{VX2} - \text{VX1}$ and $\text{VX4} - \text{VX1}$
+\end{itemize}
+
+The term structure slope is a key indicator of market sentiment:
+\begin{itemize}[noitemsep]
+    \item \textbf{Contango} (slope $> 0$): Normal market conditions; near-term volatility expected to be lower than future volatility
+    \item \textbf{Backwardation} (slope $< 0$): Stressed conditions; elevated near-term volatility expectations
+\end{itemize}
+
+\subsection{S\&P 500 Index Data}
+
+We obtain S\&P 500 (ticker: \^{}GSPC) price data from Yahoo Finance via the \texttt{yfinance} library. This provides daily OHLCV data for computing realized volatility measures.
+
+\subsubsection{Realized Volatility}
+
+We compute multiple realized volatility estimators:
+
+\textbf{Standard Realized Volatility:}
+\begin{equation}
+RV_t^{(n)} = \sqrt{\frac{252}{n} \sum_{i=0}^{n-1} r_{t-i}^2}
+\end{equation}
+where $r_t = \log(P_t / P_{t-1})$ is the log return.
+
+\textbf{Parkinson Volatility:}
+\begin{equation}
+\sigma_{P,t}^{(n)} = \sqrt{\frac{1}{4n \log 2} \sum_{i=0}^{n-1} \left(\log\frac{H_{t-i}}{L_{t-i}}\right)^2}
+\end{equation}
+where $H_t$ and $L_t$ are daily high and low prices. The Parkinson estimator is more efficient than the close-to-close estimator when intraday data is available.
+
+\subsection{Macroeconomic Data (FRED)}
+
+We collect macroeconomic indicators from the Federal Reserve Economic Data (FRED) API:
+
+\begin{table}[H]
+\centering
+\caption{FRED Economic Series}
+\label{tab:fred_series}
+\begin{tabular}{llc}
+\toprule
+\textbf{Series} & \textbf{Description} & \textbf{Frequency} \\
+\midrule
+\multicolumn{3}{l}{\textit{Interest Rates}} \\
+DFF & Federal Funds Effective Rate & Daily \\
+DGS1, DGS2, DGS10, DGS30 & Treasury Yields & Daily \\
+T10Y2Y & 10Y-2Y Treasury Spread & Daily \\
+T10Y3M & 10Y-3M Treasury Spread & Daily \\
+TEDRATE & TED Spread (3M LIBOR - T-Bill) & Daily \\
+\midrule
+\multicolumn{3}{l}{\textit{Credit Spreads}} \\
+BAMLH0A0HYM2 & High Yield Corporate Spread & Daily \\
+BAMLC0A0CM & Investment Grade Corporate Spread & Daily \\
+\midrule
+\multicolumn{3}{l}{\textit{Financial Stress Indices}} \\
+NFCI & Chicago Fed Financial Conditions Index & Weekly \\
+STLFSI4 & St. Louis Fed Financial Stress Index & Weekly \\
+\midrule
+\multicolumn{3}{l}{\textit{Economic Uncertainty}} \\
+USEPUINDXD & Economic Policy Uncertainty Index & Daily \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The TED spread (TEDRATE) captures credit risk in the banking system---the difference between 3-month LIBOR and the risk-free T-Bill rate. Spikes in the TED spread historically precede market stress (e.g., 2008 financial crisis).
+
+The Economic Policy Uncertainty Index (USEPUINDXD) is a text-based index measuring policy-related economic uncertainty from newspaper coverage, tax code provisions, and economic forecaster disagreement.
+
+%------------------------------------------------------------------------------
+\section{Dataset Overview}
+%------------------------------------------------------------------------------
+
+\subsection{Summary Statistics}
+
+\begin{table}[H]
+\centering
+\caption{Dataset Summary Statistics}
+\label{tab:summary}
+\begin{tabular}{lc}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Date Range & 2006-01-03 to 2025-12-12 \\
+Trading Days & 5,046 \\
+Total Features & 139 \\
+\midrule
+\multicolumn{2}{l}{\textit{VIX Statistics}} \\
+Mean & 19.46 \\
+Standard Deviation & 8.73 \\
+Median & 17.10 \\
+Minimum & 9.14 \\
+Maximum & 82.69 \\
+Skewness & 2.50 \\
+Kurtosis & 9.36 \\
+\midrule
+\multicolumn{2}{l}{\textit{SKEW Statistics}} \\
+Mean & 121.8 \\
+Typical Range & 110--135 \\
+\midrule
+\multicolumn{2}{l}{\textit{Put/Call Ratios}} \\
+Total PC Mean & 0.92 \\
+VIX PC Mean & 0.65 \\
+\midrule
+\multicolumn{2}{l}{\textit{S\&P 500 Returns}} \\
+Annualized Mean Return & 10.30\% \\
+Annualized Volatility & 19.45\% \\
+Sharpe Ratio & 0.53 \\
+Worst Daily Return & -11.98\% \\
+Best Daily Return & 11.58\% \\
+\midrule
+\multicolumn{2}{l}{\textit{Term Structure}} \\
+Contango Frequency (VX1 $>$ VIX) & 76.5\% \\
+Upward Slope (VX2 $>$ VX1) & 81.5\% \\
+Mean Slope (VX2-VX1) & 0.88 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{VIX Distribution Characteristics}
+
+The VIX exhibits several well-documented statistical properties:
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Right-skewness} (skew = 2.50): Volatility spikes are more common than volatility crashes
+    \item \textbf{Excess kurtosis} (kurtosis = 9.36): Fat tails indicate frequent extreme values
+    \item \textbf{Mean reversion}: VIX tends to revert to its long-term mean around 19-20
+    \item \textbf{Regime-dependent behavior}: Distinct low, normal, and high volatility states
+\end{enumerate}
+
+These characteristics motivate regime-switching models rather than simple linear forecasting approaches.
+
+%------------------------------------------------------------------------------
+\section{Feature Engineering}
+%------------------------------------------------------------------------------
+
+We compute the following derived features for use in predictive modeling:
+
+\subsection{Realized Volatility Features}
+\begin{itemize}[noitemsep]
+    \item Rolling realized volatility: 5, 10, 21, 63, 126, 252-day windows
+    \item Parkinson volatility: 5, 10, 21, 63, 126, 252-day windows
+    \item Log returns and log realized volatility
+\end{itemize}
+
+\subsection{Variance Risk Premium (VRP)}
+
+The Variance Risk Premium captures the difference between implied and realized volatility:
+\begin{equation}
+\text{VRP} = \sigma_{\text{IV}}^2 - \sigma_{\text{RV}}^2
+\end{equation}
+
+We compute both forward-looking VRP (comparing to future realized volatility, ex-post) and backward-looking VRP (comparing to historical realized, available in real-time). 
+
+\textbf{Important:} Forward VRP (\texttt{vrp\_forward}) uses future realized volatility and \textbf{cannot} be used as a predictor in ML models. It is computed for ex-post analysis only. Use \texttt{vrp\_backward} for real-time available features.
+
+Key VRP statistics in our dataset:
+\begin{itemize}[noitemsep]
+    \item VRP backward is positive 84.1\% of the time
+    \item VRP forward is positive 82.0\% of the time  
+    \item Mean VRP: $\sim$3.4 volatility points
+    \item VRP turns sharply negative during volatility shocks
+\end{itemize}
+
+\subsection{Term Structure Features}
+\begin{itemize}[noitemsep]
+    \item VIX basis: $\text{VX1} - \text{VIX}$
+    \item Term slope: $\text{VX2} - \text{VX1}$, $\text{VX4} - \text{VX1}$
+    \item Percentage slopes for standardization
+\end{itemize}
+
+\subsection{Volatility of Volatility}
+\begin{itemize}[noitemsep]
+    \item VVIX index level
+    \item Rolling VIX return volatility: 5, 10, 21-day windows
+    \item VIX change and range over multiple horizons
+\end{itemize}
+
+\subsection{Regime Indicators}
+\begin{itemize}[noitemsep]
+    \item VIX regime: 0 (low), 1 (normal), 2 (high) based on thresholds
+    \item VIX percentile: Expanding window percentile rank (252-day minimum) -- no look-ahead bias
+    \item VIX z-score: Rolling 252-day standardized value
+    \item Contango indicator: Binary flag for positive term structure slope (76.5\% when VX1 data available)
+\end{itemize}
+
+\subsection{SKEW Features}
+\begin{itemize}[noitemsep]
+    \item SKEW z-score: Rolling 252-day standardized SKEW value
+    \item SKEW percentile: Rolling 252-day percentile rank
+    \item SKEW changes: 5-day and 21-day changes
+    \item SKEW/VIX ratio: Relative tail risk vs. overall volatility
+    \item High SKEW regime: Binary indicator for elevated tail risk (SKEW $>$ 130)
+\end{itemize}
+
+\subsection{Put/Call Sentiment Features}
+\begin{itemize}[noitemsep]
+    \item Moving averages: 5-day and 21-day smoothed P/C ratios
+    \item P/C z-score: Rolling 63-day standardized value
+    \item Extreme P/C indicators: Binary flags for ratios $>$ 1.2 (bearish) or $<$ 0.6 (bullish)
+    \item P/C spread: Difference between equity and index P/C ratios
+\end{itemize}
+
+%------------------------------------------------------------------------------
+\section{Data Quality Assessment}
+%------------------------------------------------------------------------------
+
+\subsection{Missing Data Analysis}
+
+\begin{table}[H]
+\centering
+\caption{Missing Data Summary (Trading Days Only)}
+\label{tab:missing}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Series} & \textbf{Missing \%} & \textbf{Reason} \\
+\midrule
+VIX (OHLC) & 0\% & Full coverage (trading day filter) \\
+S\&P 500 & 0\% & Full coverage \\
+VVIX & 4.5\% & Later start date (2006-03-26) \\
+VIX9D & 25.8\% & Series started 2011 \\
+VIX3M & 20.0\% & Series started 2009 \\
+VIX6M & 11.0\% & Series started 2008 \\
+SKEW & 2.8\% & Small gaps in early data \\
+Put/Call Ratios & 27\% & Data ends October 2019 \\
+VX1--VX5 & 31\% & Futures started 2007 \\
+NFCI, STLFSI4 & 68--75\% & Weekly frequency \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Missing data arises primarily from:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Staggered series inception}: Newer indices (VIX9D, VIX3M) have shorter histories
+    \item \textbf{Frequency mismatch}: Weekly series (NFCI) mapped to daily trading dates
+    \item \textbf{Data availability}: VIX futures electronic trading began 2007
+    \item \textbf{Historical data cutoff}: CBOE put/call ratio data ends October 2019
+\end{enumerate}
+
+\textbf{Handling Strategy:} For modeling, we recommend either:
+\begin{itemize}[noitemsep]
+    \item Using a subset of features with complete data (VIX, S\&P 500, Treasury yields)
+    \item Restricting the analysis to 2012--2019 when futures and P/C data overlap
+    \item Applying forward-fill for weekly economic indicators
+    \item Using separate models for post-2019 without P/C features
+\end{itemize}
+
+\subsection{Data Validation}
+
+We implement automated validation checks:
+\begin{itemize}[noitemsep]
+    \item Non-negative VIX values (all indices should be positive)
+    \item Reasonable price ranges (VIX $< 200$, S\&P 500 $> 0$)
+    \item Monotonic date indices without gaps
+    \item Consistent cross-series relationships (VX1 $\approx$ VIX)
+\end{itemize}
+
+%------------------------------------------------------------------------------
+\section{Volatility Regime Analysis}
+%------------------------------------------------------------------------------
+
+\subsection{Regime Classification}
+
+We define three volatility regimes based on VIX levels:
+\begin{itemize}[noitemsep]
+    \item \textbf{Low Volatility} (VIX $< 15$): Calm market conditions
+    \item \textbf{Normal Volatility} ($15 \leq$ VIX $< 25$): Typical trading environment
+    \item \textbf{High Volatility} (VIX $\geq 25$): Elevated uncertainty/stress
+\end{itemize}
+
+\subsection{Regime Statistics}
+
+\begin{table}[H]
+\centering
+\caption{Volatility Regime Characteristics}
+\label{tab:regimes}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Regime} & \textbf{Frequency} & \textbf{Avg. VIX} & \textbf{Avg. SPX Return} \\
+\midrule
+Low Vol (VIX $< 15$) & 30.2\% & 12.5 & Positive \\
+Normal Vol ($15 \leq$ VIX $< 25$) & 50.1\% & 18.9 & Near zero \\
+High Vol (VIX $\geq 25$) & 19.7\% & 34.2 & Negative \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key observations:
+\begin{itemize}[noitemsep]
+    \item The market spends roughly half of the time in ``normal'' volatility conditions
+    \item High volatility regimes, while less frequent, are associated with significant market stress
+    \item Regime persistence is high, suggesting Markov-switching models are appropriate
+\end{itemize}
+
+%------------------------------------------------------------------------------
+\section{Correlation Structure}
+%------------------------------------------------------------------------------
+
+Key correlations in the dataset:
+\begin{itemize}[noitemsep]
+    \item \textbf{VIX vs S\&P 500 returns}: Strong negative correlation ($\rho \approx -0.72$ using \% changes, $\rho \approx -0.81$ using point changes)
+    \item \textbf{VIX vs VVIX}: Positive correlation ($\rho \approx 0.65$)
+    \item \textbf{VIX vs High Yield spread}: Positive correlation ($\rho \approx 0.75$)
+    \item \textbf{VIX vs SKEW}: Weak positive correlation; SKEW captures different information
+    \item \textbf{VIX term structure}: VX1-VX9 highly correlated but with decreasing magnitude
+    \item \textbf{VIX vs Treasury curve}: Weak negative correlation with slope (flattening associated with higher VIX)
+    \item \textbf{Put/Call ratios vs VIX}: Moderate positive correlation (higher P/C with elevated VIX)
+\end{itemize}
+
+%------------------------------------------------------------------------------
+\section{Technical Implementation}
+%------------------------------------------------------------------------------
+
+\subsection{Architecture}
+
+The data pipeline implements a modular architecture:
+
+\begin{verbatim}
+src/
++-- data/
+|   +-- base.py         # Abstract base class for data sources
+|   +-- fred.py         # FRED API integration
+|   +-- cboe.py         # CBOE web crawler
+|   +-- yfinance_source.py  # Yahoo Finance wrapper
+|   +-- data_manager.py # Orchestration and merging
++-- features/
+|   +-- volatility.py   # Feature engineering
++-- analysis/
+    +-- eda.py          # Exploratory analysis
+\end{verbatim}
+
+\subsection{Extensibility}
+
+The abstract \texttt{BaseDataSource} class provides:
+\begin{itemize}[noitemsep]
+    \item Standardized interface for all data sources
+    \item Built-in caching with configurable expiration
+    \item Validation framework
+    \item Easy replacement of free sources with premium alternatives
+\end{itemize}
+
+\subsection{Reproducibility}
+
+The pipeline can be run with:
+\begin{verbatim}
+python src/main.py
+\end{verbatim}
+
+This will:
+\begin{enumerate}[noitemsep]
+    \item Download fresh data from all sources
+    \item Compute derived features
+    \item Save processed dataset to \texttt{data/processed/}
+    \item Generate data quality report
+\end{enumerate}
+
+%------------------------------------------------------------------------------
+\section{Conclusions}
+%------------------------------------------------------------------------------
+
+We have constructed a comprehensive volatility dataset suitable for regime prediction research. Key strengths:
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Comprehensive coverage}: Multiple volatility measures, SKEW tail risk, put/call sentiment, term structure data, and macro indicators
+    \item \textbf{Long history}: Nearly 20 years of data covering multiple market cycles (2006--2025)
+    \item \textbf{Research-ready features}: Pre-computed realized volatility, regime indicators, sentiment metrics, and term structure features
+    \item \textbf{Multi-dimensional sentiment}: VIX (level), SKEW (tail risk), and P/C ratios (positioning) capture different aspects of market fear
+    \item \textbf{Extensible design}: Easy to upgrade to premium data sources
+\end{enumerate}
+
+\subsection{Data Limitations}
+
+Important limitations to consider:
+\begin{itemize}[noitemsep]
+    \item \textbf{Forward-looking features}: \texttt{vrp\_forward} and \texttt{vrp\_vol\_points\_forward} use future data and cannot be used as predictors
+    \item Put/call ratio data ends October 2019 (CBOE discontinued free distribution)
+    \item Weekly economic indicators (NFCI, STLFSI) create alignment challenges
+    \item VIX futures term structure data has shorter history than spot VIX (VX1 from 2013)
+    \item Look-ahead bias must be carefully managed in feature engineering
+\end{itemize}
+
+\subsection{Next Steps}
+
+Recommended modeling approaches for this dataset:
+\begin{itemize}[noitemsep]
+    \item Hidden Markov Models for regime detection
+    \item Causal discovery methods (e.g., PC algorithm, NOTEARS) to identify lead-lag relationships
+    \item Machine learning models (Random Forest, XGBoost) for regime prediction
+    \item Neural networks for complex nonlinear relationships
+\end{itemize}
+\newpage
+%------------------------------------------------------------------------------
+% References
+%------------------------------------------------------------------------------
+
+\begin{thebibliography}{9}
+
+\bibitem{cboe_vix}
+CBOE (2024). \textit{VIX Index Methodology}. Chicago Board Options Exchange.
+
+\bibitem{fred}
+Federal Reserve Bank of St. Louis (2024). \textit{FRED Economic Data}. \url{https://fred.stlouisfed.org/}
+
+\bibitem{parkinson}
+Parkinson, M. (1980). The Extreme Value Method for Estimating the Variance of the Rate of Return. \textit{Journal of Business}, 53(1), 61-65.
+
+\bibitem{whaley}
+Whaley, R. E. (2009). Understanding the VIX. \textit{Journal of Portfolio Management}, 35(3), 98-105.
+
+\end{thebibliography}
+\newpage
+%------------------------------------------------------------------------------
+% Appendix: Figures
+%------------------------------------------------------------------------------
+\appendix
+\section{Data Visualizations}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/vix_history.png}
+    \caption{VIX Index historical time series (2006--2025), showing major volatility spikes during financial crises.}
+    \label{fig:vix_history}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/vix_distribution.png}
+    \caption{VIX distribution analysis showing the characteristic right-skewed distribution with mean $\approx$ 19.5 and positive skewness.}
+    \label{fig:vix_dist}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/spx_returns.png}
+    \caption{S\&P 500 daily returns distribution showing fat tails and volatility clustering typical of financial returns.}
+    \label{fig:spx_returns}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/futures_term_structure.png}
+    \caption{VIX futures term structure dynamics. The market is typically in contango (upward sloping) approximately 76.5\% of the time (when VX1 data available, 2013--2025).}
+    \label{fig:term_structure}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/regime_analysis.png}
+    \caption{Volatility regime analysis showing the distribution of low, normal, and high volatility regimes over the sample period.}
+    \label{fig:regimes}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/correlation_matrix.png}
+    \caption{Correlation matrix of key features showing the strong negative VIX-SPX relationship ($\rho \approx -0.81$) and term structure correlations.}
+    \label{fig:correlation}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/economic_variables.png}
+    \caption{Economic indicators time series including Treasury yields, credit spreads, and financial conditions indices.}
+    \label{fig:economic}
+\end{figure}
+
+\end{document}

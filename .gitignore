@@ -1,0 +1,105 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.env
+secrets/
+config/secrets.yaml
+
+# Data files (too large for git)
+data/raw/
+data/processed/
+data/interim/
+*.csv
+*.parquet
+*.pkl
+*.h5
+*.hdf5
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# LaTeX
+reports/*.aux
+reports/*.bbl
+reports/*.blg
+reports/*.log
+reports/*.out
+reports/*.toc
+reports/*.lof
+reports/*.lot
+reports/*.fls
+reports/*.fdb_latexmk
+reports/*.synctex.gz
+reports/latex/*.aux
+reports/latex/*.bbl
+reports/latex/*.blg
+reports/latex/*.log
+reports/latex/*.out
+reports/latex/*.toc
+reports/latex/*.lof
+reports/latex/*.lot
+reports/latex/*.fls
+reports/latex/*.fdb_latexmk
+reports/latex/*.synctex.gz
+reports/latex/*.pdf
+
+# Keep PDF reports but not aux files
+!reports/*.pdf
+
+docs/
+.github/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
