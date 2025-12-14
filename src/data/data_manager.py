@@ -22,6 +22,7 @@ from src.data.base import BaseDataSource, DataFetchError
 from src.data.fred import FREDDataSource
 from src.data.cboe import CBOEDataSource
 from src.data.yfinance_source import YFinanceDataSource
+from src.data.alpha_vantage import AlphaVantageDataSource
 
 # Load environment variables
 load_dotenv()
@@ -142,6 +143,24 @@ class DataManager:
         except Exception as e:
             logger.warning(f"Could not initialize Yahoo Finance source: {e}")
             self.yfinance = None
+
+        # Alpha Vantage (premium) options/intraday source
+        alpha_cfg = self.config.get('data', {}).get('sources', {}).get('alpha_vantage', {})
+        alpha_enabled = alpha_cfg.get('enabled', False)
+        if alpha_enabled:
+            try:
+                self.alpha_vantage = AlphaVantageDataSource(
+                    cache_dir=self.cache_dir / 'alpha_vantage',
+                    cache_enabled=cache_enabled,
+                    cache_expiry_days=cache_expiry,
+                    api_key=alpha_cfg.get('api_key'),
+                )
+                logger.info("Alpha Vantage data source initialized")
+            except Exception as e:
+                logger.warning(f"Could not initialize Alpha Vantage source: {e}")
+                self.alpha_vantage = None
+        else:
+            self.alpha_vantage = None
     
     def get_vix_data(
         self,
@@ -252,6 +271,72 @@ class DataManager:
             raise DataFetchError("CBOE source not available")
         
         return self.cboe.fetch_vix_futures(start, end)
+
+    def get_options_data(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        frequency: str = "W-FRI",
+        symbol: str = "SPY",  # SPY has IV/Greeks; SPX does not in API
+        require_greeks: bool = True,
+        use_cached: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Fetch summarized historical options data (Alpha Vantage premium).
+
+        Note: Use SPY (S&P 500 ETF) not SPX - the API returns IV/Greeks
+        only for equity options, not index options.
+
+        Args:
+            start_date: Start date.
+            end_date: End date.
+            frequency: Pandas offset alias to subsample requests (default weekly Friday).
+            symbol: Underlying symbol (SPY recommended for IV/Greeks).
+            require_greeks: Request greeks/IV fields.
+            use_cached: If True, try to load from cached parquet file first.
+            
+        Returns:
+            DataFrame with 26 options features per date (IV, skew, term structure, Greeks).
+        """
+        if not self.alpha_vantage:
+            raise DataFetchError("Alpha Vantage source not available or disabled")
+
+        # Try loading from batch-collected data first
+        if use_cached:
+            cache_file = self.cache_dir / 'alpha_vantage' / f'{symbol}_options_history.parquet'
+            if cache_file.exists():
+                logger.info(f"Loading cached options data from {cache_file}")
+                df = pd.read_parquet(cache_file)
+                # Filter to date range
+                start = start_date or self.start_date
+                end = end_date or self.end_date
+                df = df.loc[start:end]
+                return df
+
+        start = (start_date or self.start_date).date()
+        end = (end_date or self.end_date).date()
+        dates = pd.date_range(start=start, end=end, freq=frequency)
+
+        logger.info(
+            f"Fetching Alpha Vantage options for {symbol}: {len(dates)} trading snapshots"
+        )
+        frames = []
+        for dt in dates:
+            try:
+                frame = self.alpha_vantage.fetch_historical_options(
+                    date=dt.to_pydatetime(),
+                    symbol=symbol,
+                    require_greeks=require_greeks,
+                )
+                frames.append(frame)
+            except Exception as e:
+                logger.warning(f"Options fetch failed for {dt.date()}: {e}")
+
+        if not frames:
+            raise DataFetchError("No options data retrieved from Alpha Vantage")
+
+        combined = pd.concat(frames).sort_index()
+        return combined
     
     def get_spx_prices(
         self,
@@ -329,7 +414,8 @@ class DataManager:
         end_date: Optional[datetime] = None,
         include_futures: bool = True,
         include_economic: bool = True,
-        include_putcall: bool = True
+        include_putcall: bool = True,
+        include_options: bool = False
     ) -> pd.DataFrame:
         """
         Collect all available data and merge into unified dataset.
@@ -384,6 +470,25 @@ class DataManager:
             datasets.append(('spx', spx_data))
         except Exception as e:
             logger.error(f"Failed to fetch S&P 500: {e}")
+
+        # Alpha Vantage options (premium)
+        if include_options:
+            opts_cfg = self.config.get('data', {}).get('sources', {}).get('alpha_vantage', {})
+            freq = opts_cfg.get('frequency', 'W-FRI')
+            symbol = opts_cfg.get('options_symbol', 'SPX')
+            require_greeks = opts_cfg.get('require_greeks', True)
+
+            logger.info(f"Fetching Alpha Vantage options for {symbol} (freq={freq})...")
+            try:
+                options_data = self.get_options_data(
+                    start, end,
+                    frequency=freq,
+                    symbol=symbol,
+                    require_greeks=require_greeks
+                )
+                datasets.append(('options', options_data))
+            except Exception as e:
+                logger.error(f"Failed to fetch Alpha Vantage options: {e}")
         
         # Economic data
         if include_economic:
@@ -489,6 +594,8 @@ class DataManager:
             self.cboe.clear_cache()
         if self.yfinance:
             self.yfinance.clear_cache()
+        if getattr(self, 'alpha_vantage', None):
+            self.alpha_vantage.clear_cache()
         
         logger.info("Cleared all caches")
 

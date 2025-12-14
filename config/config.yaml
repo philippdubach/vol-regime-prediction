@@ -23,10 +23,13 @@ data:
     spx:
       - yfinance           # Yahoo Finance
     
-    # Future premium sources (uncomment when available)
-    # options:
-    #   - optionmetrics    # WRDS
-    #   - alpha_vantage    # Alpha Vantage premium
+    # Premium sources (configurable)
+    alpha_vantage:
+      enabled: true         # Alpha Vantage premium enabled
+      api_key: null         # uses env var ALPHAVANTAGE_API_KEY
+      options_symbol: SPY   # Use SPY (has IV/Greeks) not SPX (no Greeks in API)
+      frequency: "W-FRI"    # pandas frequency for options sampling
+      require_greeks: true  # request greeks/IV fields
 
 # Feature engineering settings  
 features:
